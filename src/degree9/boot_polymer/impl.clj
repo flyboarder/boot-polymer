@@ -84,3 +84,21 @@
       (contains? inline? :scripts) (inline-js-scripts infile)
       (contains? inline? :css) (inline-html-css infile (contains? inline? :css-imports) (contains? inline? :polymer))
       (contains? inline? :html-imports) (inline-html-imports infile inline?))))
+
+(defn select-html-scripts [hdat]
+  (hsel/select (hsel/tag :script) hdat))
+
+(defn select-scripts [infile]
+  (apply str (mapcat :content (-> infile slurp h/parse h/as-hickory select-html-scripts))))
+
+(defn strip-html-scripts [hdat]
+  (let [loc (hsel/select-next-loc (hsel/tag :script) (hzip/hickory-zip hdat))]
+    (if-not loc hdat
+      (-> loc zip/remove zip/root strip-html-scripts))))
+
+(defn strip-scripts [infile]
+  (-> infile slurp h/parse h/as-hickory strip-html-scripts))
+
+(defn ref-js [hdat file body?]
+  (let [loc (hsel/select-next-loc (if body? (hsel/tag :body) (hsel/tag :head)) (hzip/hickory-zip hdat))]
+    (zip/root (zip/append-child loc {:type :element :tag :script :attrs {:src file :defer nil}}))))

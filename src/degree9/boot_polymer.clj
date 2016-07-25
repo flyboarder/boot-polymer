@@ -1,15 +1,12 @@
 (ns degree9.boot-polymer
   {:boot/export-tasks true}
   (:require [clojure.java.io :as io]
-            [clojure.string :as s]
             [clojure.zip :as zip]
             [boot.core :as boot]
             [boot.task.built-in :as tasks]
             [boot.tmpdir :as tmpd]
             [boot.util :as util]
-            [degree9.boot-exec :as exec]
             [degree9.boot-polymer.impl :as impl]
-            [cheshire.core :refer :all]
             [silicone.core :as silicone]
             [hickory.render :as rend]
             [hickory.select :as hsel]
@@ -20,34 +17,31 @@
   [i input         VAL     str      "Input file to split."
    o html          VAL     str      "HTML output will be written to this file."
    j javascript    VAL     str      "JS output will be written to this file."
-   b script-body           bool     "In HTML output include script in body."
-   s only-split            bool     "Do not include script tag in HTML output."
-   a always-script         bool     "Always generate JS file."]
+   b body                  bool     "In HTML output include script in body."]
   (let [input    (:input         *opts* "index.html")
         html-out (:html          *opts* input)
         js-out   (:javascript    *opts* (.replaceAll html-out "\\.html$" ".js"))
-        in-body  (:script-body   *opts*)
-        split    (:only-split    *opts*)
-        always   (:always-script *opts*)
+        in-body  (:body   *opts*)
         tmp      (boot/tmp-dir!)
-        tmp-path (.getAbsolutePath tmp)
-        args     (cond-> ["--source" input "--html" html-out "--js" js-out]
-                   in-body (conj "--script-in-head=false")
-                   split   (conj "--only-split")
-                   always  (conj "--always-write-script"))]
-    (util/dbug "CRISPER ARGS: " args)
-    (comp
-      (boot/with-pass-thru fileset
-        (let [files (->> fileset
-                      (boot/output-files)
-                      (boot/by-name [input])
-                      (map (juxt boot/tmp-path boot/tmp-file)))]
+        tmp-path (.getAbsolutePath tmp)]
+    (boot/with-pre-wrap fileset
+      (util/dbug (str "Crisper Tmp Path:" tmp-path "\n"))
+      (util/info (str "Splitting file... \n"))
+      (let [files (->> fileset
+                    (boot/output-files)
+                    (boot/by-name [input])
+                    (map (juxt boot/tmp-path boot/tmp-file)))]
           (doseq [[path file] files]
             (io/make-parents (io/file tmp path))
-            (io/copy file (io/file tmp path)))))
-      (exec/exec :process "crisper"
-                 :arguments args
-                 :directory tmp-path))))
+            (io/copy file (io/file tmp path)))
+          (let [file          (io/file tmp input)
+                html-contents (impl/strip-scripts file)
+                html-contents (impl/ref-js html-contents js-out in-body)
+                js-contents   (impl/select-scripts file)]
+            (util/info (str "• " input " -> " html-out " & " js-out "\n"))
+            (doto (io/file tmp html-out) io/make-parents (spit (rend/hickory-to-html html-contents)))
+            (doto (io/file tmp js-out) io/make-parents (spit js-contents)))
+          (-> fileset (boot/add-resource tmp) boot/commit!)))))
 
 (boot/deftask vulcanize
   "Inline HTML Imports, Scripts and CSS."
