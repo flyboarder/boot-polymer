@@ -1,5 +1,6 @@
 (ns degree9.boot-polymer.impl
   (:require [clojure.java.io :as io]
+            [clojure.string :as s]
             [boot.util :as util]
             [hickory.core :as h]
             [dickory-dock.core :as d]
@@ -89,7 +90,7 @@
   (hsel/select (hsel/tag :script) hdat))
 
 (defn select-scripts [infile]
-  (apply str (mapcat :content (-> infile slurp h/parse h/as-hickory select-html-scripts))))
+  (s/join " " (mapcat :content (-> infile slurp h/parse h/as-hickory select-html-scripts))))
 
 (defn strip-html-scripts [hdat]
   (let [loc (hsel/select-next-loc (hsel/tag :script) (hzip/hickory-zip hdat))]
