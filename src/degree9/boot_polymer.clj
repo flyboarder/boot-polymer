@@ -73,30 +73,41 @@
                      (:follow *opts*)  (conj :css-imports)
                      (:polymer *opts*) (conj :polymer)
                      (:scripts *opts*) (conj :scripts))
-              html-out (impl/inline-html-file (io/file tmp input) (:excluded *opts* #{}) opts)
+              excluded (into #{} (map #(.getCanonicalPath (io/file tmp input %)) (:excluded *opts*)))
+              html-out (impl/inline-html-file (io/file tmp input) excluded opts)
               html-zip (hzip/hickory-zip html-out)]
           (util/info (str "• " input " -> " output "\n"))
           (doto (io/file tmp output)
             io/make-parents
             (spit
-              (rend/hickory-to-html
-                (if (:document *opts*) html-out
-                  (zip/root
-                    (zip/edit html-zip
-                      #(assoc-in % [:content]
-                        (hsel/select (hsel/child (hsel/tag :head) hsel/any) html-out)))))))))
+              (rend/hickory-to-html html-out)
+              ;(rend/hickory-to-html
+                ;(if (:document *opts*) html-out
+                ;  (zip/root
+                ;    (zip/edit html-zip
+                ;      #(assoc-in % [:content]
+                ;        (hsel/select (hsel/child (hsel/tag :head) hsel/any) html-out))))))
+                        )
+                        ))
         (-> fileset (boot/add-resource tmp) boot/commit!)))))
 
 (boot/deftask polymer
   "Generates a polymer elements file"
   [d directory  VAL str "Directory to import elements from."
    e elements   VAL str "Polymer elements to import."
+   x excluded   VAL #{str} "HTML Imports to exclude."
    o html       VAL str "HTML output will be written to this file."
    j javascript VAL str "JS output will be written to this file."]
-  (let [elements (:elements   *opts* #{:polymer :iron-elements :paper-elements :neon-animation})
+  (let [elements (:elements   *opts* #{:iron-elements :paper-elements :neon-animation})
         html-out (:html       *opts* "elements.html")
         js-out   (:javascript *opts* "elements.js")
         dir      (:directory  *opts* "bower_components")
+        excluded (:excluded   *opts* #{})
+        excluded (conj excluded (str "../" dir "/hydrolysis/hydrolysis-analyzer.html")
+                                (str "../" dir "/polymer/polymer.html")
+                                (str "../" dir "/polymer/polymer-mini.html")
+                                (str "../" dir "/polymer/polymer-micro.html")
+                                (str "../" dir "/iron-test-helpers/iron-test-helpers.html"))
         tmp      (boot/tmp-dir!)
         tmp-path (.getAbsolutePath tmp)]
     (comp
@@ -107,5 +118,5 @@
             (io/make-parents)
             (spit html))
           (-> fileset (boot/add-resource tmp) boot/commit!)))
-      (vulcanize :input html-out :output "vulcanize.html")
+      (vulcanize :input html-out :output "vulcanize.html" :excluded excluded :html true :css true :polymer true)
       (crisper :input "vulcanize.html" :html html-out :javascript js-out))))

@@ -3,10 +3,11 @@
                   [boot/core            "2.6.0"]
                   [adzerk/bootlaces     "0.1.13" :scope "test"]
                   [degree9/boot-semver  "1.2.4" :scope "test"]
-                  [degree9/dickory-dock "0.1.0"]
-                  [degree9/silicone     "0.5.0"]
+                  [degree9/dickory-dock "0.2.0-SNAPSHOT"]
+                  [degree9/silicone     "0.6.0-SNAPSHOT"]
                   [hickory              "0.6.0"]
-                  [com.helger/ph-css    "5.0.0"]]
+                  [com.helger/ph-css    "5.0.0"]
+                  [clojurewerkz/urly    "1.0.0"]]
 
  :resource-paths   #{"src"})
 

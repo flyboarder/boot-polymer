@@ -8,17 +8,17 @@
             [dickory-dock.select :as dsel]
             [clojure.zip :as zip]
             [hickory.zip :as hzip]
-            [dickory-dock.zip :as dzip]))
+            [dickory-dock.zip :as dzip]
+            [clojurewerkz.urly.core :as urly])
+  (:import (java.net URI URL)))
 
 (declare inline-html-file)
 (declare inline-css-file)
 
 (def excluded-html-imports (atom #{}))
 
-(def url-regex #"^((http[s]?|ftp):\/)?\/?([^:\/\s]+)((\/\w+)*\/)([\w\-\.]+[^#?\s]+)(.*)?(#[\w\-]+)?$")
-
 (defn inline-js-scripts [hdat infile]
-  (let [loc (hsel/select-next-loc (hsel/and (hsel/tag :script) (hsel/attr :src #(not (re-matches url-regex %)))) (hzip/hickory-zip hdat))]
+  (let [loc (hsel/select-next-loc (hsel/and (hsel/tag :script) (hsel/attr :src #(urly/relative? (java.net.URL. %)))) (hzip/hickory-zip hdat))]
     (if-not loc hdat
       (let [nfile (-> loc zip/node :attrs :src)]
         (util/info (str "Inlining Script... " nfile "\n"))
@@ -26,7 +26,7 @@
           (inline-js-scripts (zip/root loc)))))))
 
 (defn inline-css-imports [cssdat infile]
-  (let [loc (hsel/select-next-loc (hsel/and (hsel/node-type :import) (dsel/url #(not (re-matches url-regex %)))) (dzip/css-zip cssdat))]
+  (let [loc (hsel/select-next-loc (hsel/and (hsel/node-type :import) (dsel/url #(urly/relative? %))) (dzip/css-zip cssdat))]
     (if-not loc cssdat
       (let [nfile (-> loc zip/node :url)]
         (util/info (str "Importing Stylesheet... " nfile "\n"))
@@ -38,7 +38,7 @@
           (inline-css-imports (zip/root loc) infile))))))
 
 (defn inline-html-css [hdat infile imports? polymer?]
-  (let [loc (hsel/select-next-loc (hsel/and (hsel/tag :link) (hsel/attr :rel (partial = "stylesheet"))) (hzip/hickory-zip hdat))]
+  (let [loc (hsel/select-next-loc (hsel/and (hsel/tag :link) (hsel/attr :rel (partial = "stylesheet")) (hsel/attr :href urly/relative?)) (hzip/hickory-zip hdat))]
     (if-not loc hdat
       (let [nfile (-> loc zip/node :attrs :href)]
         (util/info (str "Inlining Stylesheet... " nfile "\n"))
@@ -47,35 +47,35 @@
               loc (zip/replace loc (d/css-to-hickory cssdat (when polymer? {:is "custom-style"})))]
           (inline-html-css (zip/root loc) infile imports? polymer?))))))
 
-(defn strip-html-excluded [hdat & [msg?]]
+(defn strip-html-excluded [hdat infile & [msg?]]
   (let [loc (hsel/select-next-loc (hsel/and (hsel/tag :link)
                                 (hsel/attr :rel (partial = "import"))
-                                (hsel/attr :href (partial contains? @excluded-html-imports)))
+                                (hsel/attr :href #(contains? @excluded-html-imports (.getCanonicalPath (io/file (.getParent infile) %)))))
                          (hzip/hickory-zip hdat))]
     (if-not loc hdat
       (let [nfile (-> loc zip/node :attrs :href)]
-        (when-not msg? (util/info (str "Stripping HTML Imports... \n")))
-        (util/info (str "• " nfile "\n"))
-        (strip-html-excluded (zip/root (zip/remove loc)) true)))))
+        (when-not msg? (util/dbug (str "Stripping HTML Imports... \n")))
+        (util/dbug (str "• " nfile "\n"))
+        (strip-html-excluded (zip/root (zip/remove loc)) infile true)))))
 
 (defn inline-html-imports [hdat infile opts]
-  (let [hdat (strip-html-excluded hdat)
+  (let [hdat (strip-html-excluded hdat infile)
         loc (hsel/select-next-loc
               (hsel/and (hsel/tag :link)
                         (hsel/attr :rel (partial = "import"))
-                        (hsel/attr :href #(not (contains? @excluded-html-imports %))))
+                        (hsel/attr :href #(not (contains? @excluded-html-imports (.getCanonicalPath (io/file (.getParent infile) %))))))
               (hzip/hickory-zip hdat))]
     (if-not loc hdat
-      (let [nfile (-> loc zip/node :attrs :href)]
-        (swap! excluded-html-imports #(conj % nfile))
+      (let [nfile (-> loc zip/node :attrs :href)
+            npath (.getCanonicalPath (io/file (.getParent infile) nfile))]
+        (swap! excluded-html-imports #(conj % npath))
         (util/info (str "Inlining HTML Imports: " nfile "\n"))
+        (util/dbug (str "• " npath "\n"))
         (let [inline-file (inline-html-file (io/file (.getParent infile) nfile) @excluded-html-imports opts)
-              loc (reduce #(zip/next (zip/insert-left %1 %2))
+              loc (reduce #(zip/insert-left %1 %2)
                           (zip/next (zip/remove loc))
-                          (hsel/select
-                            (hsel/or (hsel/child (hsel/tag :head) hsel/any)
-                                     (hsel/child (hsel/tag :body) hsel/any))
-                            inline-file))]
+                          (hsel/select hsel/any inline-file))
+                  ]
         (inline-html-imports (zip/root loc) infile opts))))))
 
 (defn inline-html-file [infile excluded inline?]
@@ -90,7 +90,7 @@
   (hsel/select (hsel/tag :script) hdat))
 
 (defn select-scripts [infile]
-  (s/join " " (mapcat :content (-> infile slurp h/parse h/as-hickory select-html-scripts))))
+  (apply str (mapcat :content (-> infile slurp h/parse h/as-hickory select-html-scripts))))
 
 (defn strip-html-scripts [hdat]
   (let [loc (hsel/select-next-loc (hsel/tag :script) (hzip/hickory-zip hdat))]
